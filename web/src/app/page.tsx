@@ -16,22 +16,46 @@ export default function AutoNotesDashboard() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [results, setResults] = useState<{ full_notes: string, revision: string } | null>(null);
 
+  useEffect(() => {
+    console.log("🌐 AutoNotes AI Initialized");
+    console.log("🔗 API URL:", API_BASE);
+  }, []);
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
     setFile(selectedFile);
-    setStatus('uploading');
+    setStatus('processing'); // Set to processing immediately for sync response
 
     const formData = new FormData();
     formData.append('file', selectedFile);
 
+    console.log("📤 Uploading file to:", `${API_BASE}/upload`);
+
     try {
-      const response = await axios.post(`${API_BASE}/upload`, formData);
-      setJobId(response.data.job_id);
-      setStatus('processing');
-    } catch (error) {
-      console.error(error);
+      const response = await axios.post(`${API_BASE}/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000 // 2 minute timeout for AI generation
+      });
+      
+      console.log("✅ Server responded:", response.data);
+      
+      if (response.data.status === 'completed') {
+        setJobId(response.data.job_id);
+        setStatus('completed');
+      } else {
+        setJobId(response.data.job_id);
+        setStatus('processing');
+      }
+    } catch (error: any) {
+      console.error("❌ Upload Error:", error);
+      if (error.response) {
+        console.error("Data:", error.response.data);
+        console.error("Status:", error.response.status);
+      } else if (error.request) {
+        console.error("Request made but no response. Possible CORS issue or server down.");
+      }
       setStatus('error');
     }
   };
@@ -40,21 +64,37 @@ export default function AutoNotesDashboard() {
     if (!rawText.trim()) return;
     setStatus('processing');
 
+    console.log("📤 Sending text to:", `${API_BASE}/upload`);
+
     try {
-      const response = await axios.post(`${API_BASE}/upload`, { text: rawText });
-      setJobId(response.data.job_id);
-      setStatus('processing');
-    } catch (error) {
-      console.error(error);
+      const response = await axios.post(`${API_BASE}/upload`, { text: rawText }, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 120000
+      });
+      
+      console.log("✅ Server responded:", response.data);
+      
+      if (response.data.status === 'completed') {
+        setJobId(response.data.job_id);
+        setStatus('completed');
+      } else {
+        setJobId(response.data.job_id);
+        setStatus('processing');
+      }
+    } catch (error: any) {
+      console.error("❌ Text Submit Error:", error);
       setStatus('error');
     }
   };
 
   const downloadFile = (type: 'full' | 'revision') => {
     if (!jobId) return;
-    window.open(`${API_BASE}/download/${jobId}/${type}`, '_blank');
+    const url = `${API_BASE}/download/${jobId}/${type}`;
+    console.log("📥 Downloading from:", url);
+    window.open(url, '_blank');
   };
 
+  // Poll only if not completed (fallback)
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
@@ -63,20 +103,13 @@ export default function AutoNotesDashboard() {
         try {
           const response = await axios.get(`${API_BASE}/status/${jobId}`);
           if (response.data.status === 'completed') {
-            setResults({
-              full_notes: response.data.full_notes,
-              revision: response.data.revision
-            });
             setStatus('completed');
-            clearInterval(interval);
-          } else if (response.data.status === 'failed') {
-            setStatus('error');
             clearInterval(interval);
           }
         } catch (error) {
-          console.error(error);
+          console.error("Polling error:", error);
         }
-      }, 3000);
+      }, 5000);
     }
 
     return () => clearInterval(interval);
@@ -171,7 +204,7 @@ export default function AutoNotesDashboard() {
               </motion.div>
             )}
 
-            {(status === 'uploading' || status === 'processing') && (
+            {status === 'processing' && (
               <motion.div
                 key="processing"
                 initial={{ opacity: 0, y: 20 }}
@@ -183,11 +216,11 @@ export default function AutoNotesDashboard() {
                   <Loader2 className="w-12 h-12 text-purple-500 animate-spin" />
                 </div>
                 <h3 className="text-xl font-bold mb-2">Generating Notes...</h3>
-                <p className="text-gray-400 text-sm">Crafting your professional Markdown documents.</p>
+                <p className="text-gray-400 text-sm">Please wait while the AI crafts your study materials (up to 30s).</p>
               </motion.div>
             )}
 
-            {status === 'completed' && results && (
+            {status === 'completed' && (
               <motion.div
                 key="completed"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -235,7 +268,8 @@ export default function AutoNotesDashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 className="p-8 rounded-2xl bg-red-500/10 border border-red-500/20 backdrop-blur-xl text-center"
               >
-                <h3 className="text-xl font-bold mb-2 text-red-400">Generation Failed</h3>
+                <h3 className="text-xl font-bold mb-2 text-red-400">Connection Failed</h3>
+                <p className="text-gray-400 text-sm mb-6">Your browser blocked the request. Open the <b>Console (F12)</b> for more details.</p>
                 <button 
                   onClick={() => setStatus('idle')}
                   className="px-6 py-2 bg-white text-black rounded-full font-semibold"

@@ -5,6 +5,11 @@ from generators.notes_pipeline import NotesGenerator
 from dotenv import load_dotenv
 import uuid
 import os
+import logging
+
+# Enable logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- SMART ENV LOADING ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,8 +23,8 @@ for folder in [current_dir, parent_dir]:
 
 app = Flask(__name__)
 
-# --- HARD-CODED CORS (RELIABLE FOR PRODUCTION) ---
-CORS(app, resources={r"/*": {"origins": "*"}})
+# --- RELAXED CORS FOR PRODUCTION ---
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 @app.after_request
 def after_request(response):
@@ -37,6 +42,7 @@ jobs = {}
 
 @app.route("/", methods=["GET"])
 def health():
+    logger.info("Health check received")
     return jsonify({"status": "ready"}), 200
 
 @app.route("/upload", methods=["POST", "OPTIONS"])
@@ -44,28 +50,34 @@ def upload_data():
     if request.method == "OPTIONS":
         return make_response("", 200)
 
+    logger.info("--- Upload Request Started ---")
     job_id = str(uuid.uuid4())
     
     try:
-        # 1. Get Content
         if request.is_json:
             text = request.get_json().get('text', '')
+            logger.info("Received JSON text input")
         elif 'file' in request.files:
             file = request.files['file']
             text = ContentExtractor.extract(file.read(), file.content_type)
+            logger.info(f"Received file: {file.filename}")
         elif 'text' in request.form:
             text = request.form['text']
+            logger.info("Received form text input")
         else:
+            logger.warning("No valid input in request")
             return jsonify({"error": "No input"}), 400
 
         if not text:
+            logger.warning("Text extraction resulted in empty string")
             return jsonify({"error": "No text extracted"}), 400
 
-        # 2. GENERATE IMMEDIATELY (Safer for Gunicorn/Render)
+        # Generate
+        logger.info(f"Starting AI generation for Job: {job_id}")
         full_notes_md = NotesGenerator.generate_full_notes(text)
         revision_md = NotesGenerator.generate_revision_notes(text)
         
-        # 3. Save
+        # Save
         full_path = os.path.join(OUTPUT_DIR, f"{job_id}_full.md")
         rev_path = os.path.join(OUTPUT_DIR, f"{job_id}_revision.md")
         
@@ -80,10 +92,11 @@ def upload_data():
             "revision": revision_md
         }
         
+        logger.info(f"--- Job {job_id} Completed Successfully ---")
         return jsonify({"job_id": job_id, "status": "completed"})
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"FATAL ERROR in /upload: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/status/<job_id>", methods=["GET"])
