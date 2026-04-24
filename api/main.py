@@ -18,7 +18,10 @@ for folder in [current_dir, parent_dir]:
             load_dotenv(path)
 
 app = Flask(__name__)
-CORS(app)
+
+# --- PRODUCTION CORS ---
+# This allows your Vercel frontend to talk to this Render backend
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Storage
 OUTPUT_DIR = os.path.join(current_dir, "output")
@@ -26,6 +29,11 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # In-memory job store
 jobs = {}
+
+# --- HEALTH CHECK ROUTE (CRITICAL FOR RENDER) ---
+@app.route("/", methods=["GET"])
+def health_check():
+    return jsonify({"status": "healthy", "service": "AutoNotes AI API"}), 200
 
 @app.route("/upload", methods=["POST"])
 def upload_data():
@@ -81,7 +89,7 @@ def process_job(job_id, input_data, content_type, is_raw_text):
         full_notes_md = NotesGenerator.generate_full_notes(text)
         revision_md = NotesGenerator.generate_revision_notes(text)
         
-        # 3. Save as Markdown
+        # 3. Save
         full_path = os.path.join(OUTPUT_DIR, f"{job_id}_full.md")
         rev_path = os.path.join(OUTPUT_DIR, f"{job_id}_revision.md")
         
@@ -102,4 +110,6 @@ def process_job(job_id, input_data, content_type, is_raw_text):
         jobs[job_id] = {"status": "failed", "error": str(e)}
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    # Use the PORT provided by Render, or default to 8000
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=False)
