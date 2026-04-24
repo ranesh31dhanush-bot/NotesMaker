@@ -1,61 +1,41 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, Zap, CheckCircle, Loader2, Download, Sparkles, BrainCircuit, Type } from 'lucide-react';
+import { Upload, FileText, Zap, Loader2, Download, Sparkles, BrainCircuit, Type } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 
-// --- PRODUCTION CONFIG ---
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export default function AutoNotesDashboard() {
   const [file, setFile] = useState<File | null>(null);
   const [rawText, setRawText] = useState('');
   const [inputMode, setInputMode] = useState<'upload' | 'text'>('upload');
-  const [status, setStatus] = useState<'idle' | 'uploading' | 'processing' | 'completed' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'processing' | 'completed' | 'error'>('idle');
   const [jobId, setJobId] = useState<string | null>(null);
-  const [results, setResults] = useState<{ full_notes: string, revision: string } | null>(null);
-
-  useEffect(() => {
-    console.log("🌐 AutoNotes AI Initialized");
-    console.log("🔗 API URL:", API_BASE);
-  }, []);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
     setFile(selectedFile);
-    setStatus('processing'); // Set to processing immediately for sync response
+    setStatus('processing');
 
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    console.log("📤 Uploading file to:", `${API_BASE}/upload`);
-
     try {
       const response = await axios.post(`${API_BASE}/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000 // 2 minute timeout for AI generation
+        timeout: 120000 
       });
-      
-      console.log("✅ Server responded:", response.data);
       
       if (response.data.status === 'completed') {
         setJobId(response.data.job_id);
         setStatus('completed');
-      } else {
-        setJobId(response.data.job_id);
-        setStatus('processing');
       }
-    } catch (error: any) {
-      console.error("❌ Upload Error:", error);
-      if (error.response) {
-        console.error("Data:", error.response.data);
-        console.error("Status:", error.response.status);
-      } else if (error.request) {
-        console.error("Request made but no response. Possible CORS issue or server down.");
-      }
+    } catch (error) {
+      console.error("Upload failed:", error);
       setStatus('error');
     }
   };
@@ -64,59 +44,30 @@ export default function AutoNotesDashboard() {
     if (!rawText.trim()) return;
     setStatus('processing');
 
-    console.log("📤 Sending text to:", `${API_BASE}/upload`);
-
     try {
       const response = await axios.post(`${API_BASE}/upload`, { text: rawText }, {
         headers: { 'Content-Type': 'application/json' },
         timeout: 120000
       });
       
-      console.log("✅ Server responded:", response.data);
-      
       if (response.data.status === 'completed') {
         setJobId(response.data.job_id);
         setStatus('completed');
-      } else {
-        setJobId(response.data.job_id);
-        setStatus('processing');
       }
-    } catch (error: any) {
-      console.error("❌ Text Submit Error:", error);
+    } catch (error) {
+      console.error("Text submission failed:", error);
       setStatus('error');
     }
   };
 
   const downloadFile = (type: 'full' | 'revision') => {
     if (!jobId) return;
-    const url = `${API_BASE}/download/${jobId}/${type}`;
-    console.log("📥 Downloading from:", url);
-    window.open(url, '_blank');
+    window.open(`${API_BASE}/download/${jobId}/${type}`, '_blank');
   };
-
-  // Poll only if not completed (fallback)
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-
-    if (status === 'processing' && jobId) {
-      interval = setInterval(async () => {
-        try {
-          const response = await axios.get(`${API_BASE}/status/${jobId}`);
-          if (response.data.status === 'completed') {
-            setStatus('completed');
-            clearInterval(interval);
-          }
-        } catch (error) {
-          console.error("Polling error:", error);
-        }
-      }, 5000);
-    }
-
-    return () => clearInterval(interval);
-  }, [status, jobId]);
 
   return (
     <main className="min-h-screen bg-[#0a0a0c] text-white selection:bg-purple-500/30">
+      {/* Dynamic Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/20 blur-[120px] rounded-full" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full" />
@@ -216,7 +167,7 @@ export default function AutoNotesDashboard() {
                   <Loader2 className="w-12 h-12 text-purple-500 animate-spin" />
                 </div>
                 <h3 className="text-xl font-bold mb-2">Generating Notes...</h3>
-                <p className="text-gray-400 text-sm">Please wait while the AI crafts your study materials (up to 30s).</p>
+                <p className="text-gray-400 text-sm">Please wait while the AI crafts your study materials.</p>
               </motion.div>
             )}
 
@@ -268,8 +219,8 @@ export default function AutoNotesDashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 className="p-8 rounded-2xl bg-red-500/10 border border-red-500/20 backdrop-blur-xl text-center"
               >
-                <h3 className="text-xl font-bold mb-2 text-red-400">Connection Failed</h3>
-                <p className="text-gray-400 text-sm mb-6">Your browser blocked the request. Open the <b>Console (F12)</b> for more details.</p>
+                <h3 className="text-xl font-bold mb-2 text-red-400">Generation Failed</h3>
+                <p className="text-gray-400 text-sm mb-6">The server didn't respond. Please check your internet or try again.</p>
                 <button 
                   onClick={() => setStatus('idle')}
                   className="px-6 py-2 bg-white text-black rounded-full font-semibold"
